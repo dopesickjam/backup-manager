@@ -1,0 +1,12 @@
+server: server.example.com
+port: 22
+user: backuper
+backup:
+  - type: files
+    dirs:
+      - /etc/
+    s3_bucket: bucket-name
+    s3_path: server.example.com/files
+    retain_daily: 1 #how many daily backups should be kept
+    retain_weekly: 1 #how many weekly backups should be kept
+    retain_monthly: 1 #how many monthly backups should be kept
