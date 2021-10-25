@@ -21,7 +21,7 @@ def foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, date):
     logging.info(f'Sync {folder} to S3 type is {backup_type}')
     c.sudo(f's3cmd -c {s3cfg} sync /tmp/{server}{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
 
-def rotateBackup(s3cfg, c, rotate_path, rotate_type, folder):
+def rotateBackup(s3cfg, c, rotate_path, rotate_type, folder, backup_type):
     s3_folder_list = c.sudo(f's3cmd -c {s3cfg} ls {rotate_path}/{rotate_type}/').stdout
 
     date_list = []
@@ -39,10 +39,36 @@ def rotateBackup(s3cfg, c, rotate_path, rotate_type, folder):
                     oldest_folder = old
 
             date_list.remove(oldest_folder)
-            c.sudo(f's3cmd -c {s3cfg} del --recursive {rotate_path}/{rotate_type}/{oldest_folder.strftime("%d_%m_%Y")}{folder}')
+
+            if backup_type == 'files':
+                c.sudo(f's3cmd -c {s3cfg} del --recursive {rotate_path}/{rotate_type}/{oldest_folder.strftime("%d_%m_%Y")}{folder}')
+            elif backup_type == 'mysql':
+                c.sudo(f's3cmd -c {s3cfg} del --recursive {rotate_path}/{rotate_type}/{oldest_folder.strftime("%d_%m_%Y")}/{folder}.sql.gz')
         else:
-            logging.info(f'All old folders was deleted')
+            logging.info(f'All oldest backups was deleted')
             break
+
+def listDB(c, ignore_db, extrafile_path):
+    logging.info(f'Get list db')
+    db_list = c.sudo(f'mysql --defaults-extra-file={extrafile_path} -e "show databases;" | grep -v Database').stdout
+
+    db_list = db_list.strip().split('\n')
+
+    for db in ignore_db:
+        db_list.remove(db)
+
+    return db_list
+
+def backupDB(c, server, db, user):
+    logging.info(f'Backup: {db}')
+    backup_dir = f'/tmp/{server}'
+    c.sudo(f'mkdir -p {backup_dir}')
+    c.sudo(f'chown {user}.{user} {backup_dir}')
+    c.sudo(f'mysqldump --defaults-extra-file={extrafile_path} --single-transaction {db} | gzip > {backup_dir}/{db}.sql.gz')
+
+def dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type):
+    logging.info(f'Put {db}.sql.gz to s3')
+    c.sudo(f's3cmd -c {s3cfg} sync /tmp/{server}/{db}.sql.gz s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/{db}.sql.gz')
 
 if args.backup_config:
     logging.info(f'Render config from {args.backup_config[0]}')
@@ -54,25 +80,26 @@ if args.backup_config:
         port = data['port']
         user = data['user']
 
-        c = Connect(server, port, user)
-
         for backup_type in data['backup']:
+            s3_bucket = backup_type['s3_bucket']
+            s3_path = backup_type['s3_path']
+            retain_daily = backup_type['retain_daily']
+            retain_weekly = backup_type['retain_weekly']
+            retain_monthly = backup_type['retain_monthly']
+
+            day_number = datetime.datetime.today().strftime("%d_%m_%Y")
+            s3cfg = '/tmp/.s3cfg'
+
             if backup_type['type'] == 'files':
                 logging.info(f'{server}: Starting process for backup files')
+                c = Connect(server, port, user)
                 dirs = backup_type['dirs']
-                s3_bucket = backup_type['s3_bucket']
-                s3_path = backup_type['s3_path']
-                retain_daily = backup_type['retain_daily']
-                retain_weekly = backup_type['retain_weekly']
-                retain_monthly = backup_type['retain_monthly']
 
                 for folder in dirs:
                     logging.info(f'{server}: Backup folder {folder}')
-                    s3cfg = '/tmp/.s3cfg'
                     c.put('.env', s3cfg)
 
                     folderBackup(c, folder, server)
-                    day_number = datetime.datetime.today().strftime("%d_%m_%Y")
                     backup_type = 'daily'
                     foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number)
 
@@ -94,21 +121,70 @@ if args.backup_config:
                 logging.info(f'{server}: Starting process for rotation files')
                 for folder in dirs:
                     logging.info(f'{server}: Rotation folder {folder}')
-                    s3cfg = '/tmp/.s3cfg'
                     c.put('.env', s3cfg)
 
                     rotate_path = f's3://{s3_bucket}/{s3_path}'
                     rotate_type = 'daily'
-                    rotateBackup(s3cfg, c, rotate_path, rotate_type, folder)
+                    rotateBackup(s3cfg, c, rotate_path, rotate_type, folder, 'files')
 
                     if retain_weekly != 0:
                         rotate_type = 'weekly'
-                        rotateBackup(s3cfg, c, rotate_path, rotate_type, folder)
+                        rotateBackup(s3cfg, c, rotate_path, rotate_type, folder, 'files')
 
                     if retain_monthly != 0:
                         rotate_type = 'monthly'
-                        rotateBackup(s3cfg, c, rotate_path, rotate_type, folder)
+                        rotateBackup(s3cfg, c, rotate_path, rotate_type, folder, 'files')
 
                 c.sudo(f'rm -rf {s3cfg}')
                 c.close()
                 logging.info(f'{server}: Rotation files was done')
+            elif backup_type['type'] == 'mysql':
+                logging.info(f'{server}: Starting process for backup mysql')
+                c = Connect(server, port, user)
+
+                extrafile_path = backup_type['extrafile_path']
+                ignore_db = backup_type['ignore_db']
+
+                list_db = listDB(c, ignore_db, extrafile_path)
+
+                for db in list_db:
+                    c.put('.env', s3cfg)
+
+                    backupDB(c, server, db, user)
+
+                    backup_type = 'daily'
+                    dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type)
+
+                    if retain_weekly != 0:
+                        if datetime.datetime.today().weekday() == 5:
+                            backup_type = 'weekly'
+                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type)
+
+                    if retain_monthly != 0:
+                        if int(datetime.datetime.today().strftime("%d")) == 1:
+                            backup_type = 'monthly'
+                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type)
+
+                    c.sudo(f'rm -rf {s3cfg}')
+                    c.sudo(f'rm -rf /tmp/{server}')
+
+                logging.info(f'{server}: Backup dbs was done')
+
+                logging.info(f'{server}: Starting process for rotation dbs')
+                for db in list_db:
+                    c.put('.env', s3cfg)
+
+                    rotate_path = f's3://{s3_bucket}/{s3_path}'
+                    rotate_type = 'daily'
+                    rotateBackup(s3cfg, c, rotate_path, rotate_type, db, 'mysql')
+
+                    if retain_weekly != 0:
+                        rotate_type = 'weekly'
+                        rotateBackup(s3cfg, c, rotate_path, rotate_type, db, 'mysql')
+
+                    if retain_monthly != 0:
+                        rotate_type = 'monthly'
+                        rotateBackup(s3cfg, c, rotate_path, rotate_type, db, 'mysql')
+
+                    c.sudo(f'rm -rf {s3cfg}')
+                logging.info(f'{server}: Rotation dbs was done')

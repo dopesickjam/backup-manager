@@ -10,3 +10,15 @@ backup:
     retain_daily: 1 #how many daily backups should be kept
     retain_weekly: 1 #how many weekly backups should be kept
     retain_monthly: 1 #how many monthly backups should be kept
+  - type: mysql
+    extrafile_path: /etc/mysql/debian.cnf
+    s3_bucket: bucket-name
+    s3_path: server.example.com/mysql
+    ignore_db:
+      - mysql
+      - information_schema
+      - performance_schema
+      - sys
+    retain_daily: 1
+    retain_weekly: 1
+    retain_monthly: 1
