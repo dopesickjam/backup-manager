@@ -15,7 +15,7 @@ def Connect(server, port, user):
 def folderBackup(c, folder, server):
     backup_dir = f'/tmp/{server}'
     c.sudo(f'mkdir -p {backup_dir}')
-    c.sudo(f'cp -r {folder} {backup_dir}')
+    c.sudo(f'cp -r --parents {folder} {backup_dir}')
 
 def foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, date):
     logging.info(f'Sync {folder} to S3 type is {backup_type}')
