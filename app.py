@@ -97,7 +97,7 @@ if args.backup_config:
             retain_monthly = backup_type['retain_monthly']
 
             day_number = datetime.datetime.today().strftime("%d_%m_%Y")
-            s3cfg = '/tmp/.s3cfg'
+            s3cfg = f'/home/{user}/.s3cfg'
 
             if backup_type['type'] == 'files':
                 logging.info(f'{server}: Starting process for backup files')
