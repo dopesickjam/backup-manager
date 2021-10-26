@@ -22,3 +22,13 @@ backup:
     retain_daily: 1
     retain_weekly: 1
     retain_monthly: 1
+  - type: postgres
+    s3_bucket: bucket-name
+    s3_path: server.example.com/postgres
+    ignore_db:
+      - template0
+      - template1
+      - postgres
+    retain_daily: 1
+    retain_weekly: 1
+    retain_monthly: 1
