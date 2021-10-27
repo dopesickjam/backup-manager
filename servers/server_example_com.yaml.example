@@ -7,6 +7,7 @@ backup:
       - /etc/
     s3_bucket: bucket-name
     s3_path: server.example.com/files
+    s3_quiet_sync: True #add no verbose output for sync to s3
     retain_daily: 1 #how many daily backups should be kept
     retain_weekly: 1 #how many weekly backups should be kept
     retain_monthly: 1 #how many monthly backups should be kept
@@ -25,6 +26,7 @@ backup:
   - type: postgres
     s3_bucket: bucket-name
     s3_path: server.example.com/postgres
+    s3_quiet_sync: False
     ignore_db:
       - template0
       - template1

@@ -17,9 +17,12 @@ def folderBackup(c, folder, server):
     c.sudo(f'mkdir -p {backup_dir}')
     c.sudo(f'cp -r --parents {folder} {backup_dir}')
 
-def foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, date):
+def foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, date, s3_quiet_sync):
     logging.info(f'Sync {folder} to S3 type is {backup_type}')
-    c.sudo(f's3cmd -c {s3cfg} sync /tmp/{server}{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
+    if s3_quiet_sync:
+        c.sudo(f's3cmd -c {s3cfg} --quiet sync /tmp/{server}{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
+    else:
+        c.sudo(f's3cmd -c {s3cfg} sync /tmp/{server}{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
 
 def rotateBackup(s3cfg, c, rotate_path, rotate_type, name, backup_type):
     s3_folder_list = c.sudo(f's3cmd -c {s3cfg} ls {rotate_path}/{rotate_type}/').stdout
@@ -75,9 +78,12 @@ def backupDB(c, server, db, user, backup_type):
         c.run(f'pg_dump {db} -F c -b -v > {backup_dir}/{db}.sql')
         c.run(f'gzip -f {backup_dir}/{db}.sql')
 
-def dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type):
+def dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync):
     logging.info(f'Put {db}.sql.gz to s3')
-    c.sudo(f's3cmd -c {s3cfg} sync /tmp/{server}/{db}.sql.gz s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/{db}.sql.gz')
+    if s3_quiet_sync:
+        c.sudo(f's3cmd -c {s3cfg} --quiet sync /tmp/{server}/{db}.sql.gz s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/{db}.sql.gz')
+    else:
+        c.sudo(f's3cmd -c {s3cfg} sync /tmp/{server}/{db}.sql.gz s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/{db}.sql.gz')
 
 if args.backup_config:
     logging.info(f'Render config from {args.backup_config[0]}')
@@ -92,6 +98,7 @@ if args.backup_config:
         for backup_type in data['backup']:
             s3_bucket = backup_type['s3_bucket']
             s3_path = backup_type['s3_path']
+            s3_quiet_sync = backup_type['s3_quiet_sync']
             retain_daily = backup_type['retain_daily']
             retain_weekly = backup_type['retain_weekly']
             retain_monthly = backup_type['retain_monthly']
@@ -110,17 +117,17 @@ if args.backup_config:
 
                     folderBackup(c, folder, server)
                     backup_type = 'daily'
-                    foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number)
+                    foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number, s3_quiet_sync)
 
                     if retain_weekly != 0:
                         if datetime.datetime.today().weekday() == 5:
                             backup_type = 'weekly'
-                            foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number)
+                            foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number, s3_quiet_sync)
 
                     if retain_monthly != 0:
                         if int(datetime.datetime.today().strftime("%d")) == 1:
                             backup_type = 'monthly'
-                            foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number)
+                            foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number, s3_quiet_sync)
 
                     c.sudo(f'rm -rf {s3cfg}')
                     c.sudo(f'rm -rf /tmp/{server}')
@@ -163,17 +170,17 @@ if args.backup_config:
                     backupDB(c, server, db, user, 'mysql')
 
                     backup_type = 'daily'
-                    dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type)
+                    dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync)
 
                     if retain_weekly != 0:
                         if datetime.datetime.today().weekday() == 5:
                             backup_type = 'weekly'
-                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type)
+                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync)
 
                     if retain_monthly != 0:
                         if int(datetime.datetime.today().strftime("%d")) == 1:
                             backup_type = 'monthly'
-                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type)
+                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync)
 
                     c.sudo(f'rm -rf {s3cfg}')
                     c.sudo(f'rm -rf /tmp/{server}')
@@ -214,17 +221,17 @@ if args.backup_config:
                     backupDB(c, server, db, user, backup_type['type'])
 
                     backup_type = 'daily'
-                    dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type)
+                    dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync)
 
                     if retain_weekly != 0:
                         if datetime.datetime.today().weekday() == 5:
                             backup_type = 'weekly'
-                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type)
+                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync)
 
                     if retain_monthly != 0:
                         if int(datetime.datetime.today().strftime("%d")) == 1:
                             backup_type = 'monthly'
-                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type)
+                            dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync)
 
                     c.sudo(f'rm -rf {s3cfg}')
                     c.sudo(f'rm -rf /tmp/{server}')
