@@ -17,12 +17,16 @@ def folderBackup(c, folder, server):
     c.sudo(f'mkdir -p {backup_dir}')
     c.sudo(f'cp -r --parents {folder} {backup_dir}')
 
-def foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, date, s3_quiet_sync):
+def foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, date, s3_quiet_sync, use_tmp):
     logging.info(f'Sync {folder} to S3 type is {backup_type}')
-    if s3_quiet_sync:
+    if s3_quiet_sync and use_tmp:
         c.sudo(f's3cmd -c {s3cfg} --quiet sync /tmp/{server}{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
-    else:
+    elif not s3_quiet_sync and use_tmp:
         c.sudo(f's3cmd -c {s3cfg} sync /tmp/{server}{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
+    elif s3_quiet_sync and not use_tmp:
+        c.sudo(f's3cmd -c {s3cfg} --quiet sync {folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
+    elif not s3_quiet_sync and not use_tmp:
+        c.sudo(f's3cmd -c {s3cfg} sync {folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
 
 def rotateBackup(s3cfg, c, rotate_path, rotate_type, name, backup_type):
     s3_folder_list = c.sudo(f's3cmd -c {s3cfg} ls {rotate_path}/{rotate_type}/').stdout
@@ -110,24 +114,26 @@ if args.backup_config:
                 logging.info(f'{server}: Starting process for backup files')
                 c = Connect(server, port, user)
                 dirs = backup_type['dirs']
+                use_tmp = backup_type['use_tmp']
 
                 for folder in dirs:
                     logging.info(f'{server}: Backup folder {folder}')
                     c.put('.env', s3cfg)
 
-                    folderBackup(c, folder, server)
+                    if use_tmp:
+                        folderBackup(c, folder, server)
                     backup_type = 'daily'
-                    foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number, s3_quiet_sync)
+                    foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number, s3_quiet_sync, use_tmp)
 
                     if retain_weekly != 0:
                         if datetime.datetime.today().weekday() == 5:
                             backup_type = 'weekly'
-                            foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number, s3_quiet_sync)
+                            foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number, s3_quiet_sync, use_tmp)
 
                     if retain_monthly != 0:
                         if int(datetime.datetime.today().strftime("%d")) == 1:
                             backup_type = 'monthly'
-                            foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number, s3_quiet_sync)
+                            foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, day_number, s3_quiet_sync, use_tmp)
 
                     c.sudo(f'rm -rf {s3cfg}')
                     c.sudo(f'rm -rf /tmp/{server}')
