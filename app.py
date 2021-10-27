@@ -224,7 +224,7 @@ if args.backup_config:
                 for db in list_db:
                     c.put('.env', s3cfg)
 
-                    backupDB(c, server, db, user, backup_type['type'])
+                    backupDB(c, server, db, user, 'postgres')
 
                     backup_type = 'daily'
                     dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync)
