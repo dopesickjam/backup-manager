@@ -1,6 +1,6 @@
 from fabric import Connection
 from yaml.loader import SafeLoader
-import yaml, argparse, logging, sys, datetime
+import yaml, argparse, logging, sys, datetime, requests
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 parser = argparse.ArgumentParser(description='Process backup manage')
@@ -108,7 +108,10 @@ if args.backup_config:
             retain_monthly = backup_type['retain_monthly']
 
             day_number = datetime.datetime.today().strftime("%d_%m_%Y")
-            s3cfg = f'/home/{user}/.s3cfg'
+            if user == 'root':
+                s3cfg = f'/{user}/.s3cfg'
+            else:
+                s3cfg = f'/home/{user}/.s3cfg'
 
             if backup_type['type'] == 'files':
                 logging.info(f'{server}: Starting process for backup files')
