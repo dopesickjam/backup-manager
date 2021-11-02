@@ -35,3 +35,11 @@ backup:
     retain_daily: 1
     retain_weekly: 1
     retain_monthly: 1
+  - type: cloudflare
+    cloudflare_token: TOKEN
+    s3_bucket: bucket-name
+    s3_path: s3_path
+    s3_quiet_sync: True
+    retain_daily: 7
+    retain_weekly: 4
+    retain_monthly: 1
