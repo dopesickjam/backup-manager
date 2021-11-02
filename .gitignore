@@ -1,3 +1,5 @@
 .env
 env
 servers/*.yaml
+test.py
+tmp

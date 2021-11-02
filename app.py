@@ -1,6 +1,6 @@
 from fabric import Connection
 from yaml.loader import SafeLoader
-import yaml, argparse, logging, sys, datetime, requests
+import yaml, argparse, logging, sys, datetime, requests, os
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 parser = argparse.ArgumentParser(description='Process backup manage')
@@ -13,6 +13,7 @@ def Connect(server, port, user):
     return c
 
 def folderBackup(c, folder, server):
+    logging.info(f'Copy {folder} to tmp dir')
     backup_dir = f'/tmp/{server}'
     c.sudo(f'mkdir -p {backup_dir}')
     c.sudo(f'cp -r --parents {folder} {backup_dir}')
@@ -24,9 +25,9 @@ def foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, backup_type, date, 
     elif not s3_quiet_sync and use_tmp:
         c.sudo(f's3cmd -c {s3cfg} sync /tmp/{server}{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
     elif s3_quiet_sync and not use_tmp:
-        c.sudo(f's3cmd -c {s3cfg} --quiet sync {folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
+        c.sudo(f's3cmd -c {s3cfg} --quiet put --recursive {folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
     elif not s3_quiet_sync and not use_tmp:
-        c.sudo(f's3cmd -c {s3cfg} sync {folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
+        c.sudo(f's3cmd -c {s3cfg} put --recursive {folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{date}{folder}')
 
 def rotateBackup(s3cfg, c, rotate_path, rotate_type, name, backup_type):
     s3_folder_list = c.sudo(f's3cmd -c {s3cfg} ls {rotate_path}/{rotate_type}/').stdout
@@ -88,6 +89,52 @@ def dbtoS3(c, server, db, s3cfg, s3_bucket, s3_path, day_number, backup_type, s3
         c.sudo(f's3cmd -c {s3cfg} --quiet sync /tmp/{server}/{db}.sql.gz s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/{db}.sql.gz')
     else:
         c.sudo(f's3cmd -c {s3cfg} sync /tmp/{server}/{db}.sql.gz s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/{db}.sql.gz')
+
+def backupDomains(cloudflare_token):
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {cloudflare_token}'
+    }
+
+    response = requests.get(
+        'https://api.cloudflare.com/client/v4/zones?per_page=5&direction=asc',
+        headers = headers
+    )
+
+    response = response.json()
+    total_pages = response['result_info']['total_pages']
+
+    for page in range(total_pages):
+        response = requests.get(
+            f'https://api.cloudflare.com/client/v4/zones?per_page=5&direction=asc&page={page}',
+            headers = headers
+        )
+        response = response.json()
+        for zone_id in response['result']:
+            print(zone_id['id'], zone_id['name'])
+
+            zone_export = requests.get(
+                f'https://api.cloudflare.com/client/v4/zones/{zone_id["id"]}/dns_records/export',
+                headers = headers
+            )
+
+            f = open(f'tmp/{zone_id["name"]}', 'w')
+            f.write(zone_export.text)
+            f.close()
+
+def domainstoS3(s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync):
+    logging.info(f'Put domains to s3')
+    if s3_quiet_sync:
+        os.system(f's3cmd -c .env --quiet put --recursive tmp/ s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/')
+    else:
+        os.system(f's3cmd -c .env put --recursive tmp/ s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/')
+
+def syncdomainS3(s3_bucket, s3_path, day_number, backup_type):
+    logging.info(f'Sync domains with backup type: {backup_type}')
+    if s3_quiet_sync:
+        os.system(f's3cmd -c .env --quiet cp --recursive s3://{s3_bucket}/{s3_path}/daily/{day_number}/ s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/')
+    else:
+        os.system(f's3cmd -c .env cp --recursive s3://{s3_bucket}/{s3_path}/daily/{day_number}/ s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/')
 
 if args.backup_config:
     logging.info(f'Render config from {args.backup_config[0]}')
@@ -266,3 +313,23 @@ if args.backup_config:
                     c.sudo(f'rm -rf {s3cfg}')
                 c.close()
                 logging.info(f'{server}: Rotation dbs was done')
+
+            elif backup_type['type'] == 'cloudflare':
+                logging.info('Start process for backup cloudflare')
+                if not os.path.exists('tmp'):
+                    os.mkdir('tmp')
+                cloudflare_token = backup_type['cloudflare_token']
+
+                backupDomains(cloudflare_token)
+                backup_type = 'daily'
+                domainstoS3(s3_bucket, s3_path, day_number, backup_type, s3_quiet_sync)
+
+                if retain_weekly != 0:
+                    if datetime.datetime.today().weekday() == 5:
+                        backup_type = 'weekly'
+                        syncdomainS3(s3_bucket, s3_path, day_number, backup_type)
+
+                if retain_monthly != 0:
+                    if int(datetime.datetime.today().strftime("%d")) == 1:
+                        backup_type = 'monthly'
+                        syncdomainS3(s3_bucket, s3_path, day_number, backup_type)
