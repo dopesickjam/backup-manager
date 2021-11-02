@@ -1,6 +1,6 @@
 from fabric import Connection
 from yaml.loader import SafeLoader
-import yaml, argparse, logging, sys, datetime, requests, os
+import yaml, argparse, logging, sys, datetime, requests, os, subprocess
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 parser = argparse.ArgumentParser(description='Process backup manage')
@@ -135,6 +135,30 @@ def syncdomainS3(s3_bucket, s3_path, day_number, backup_type):
         os.system(f's3cmd -c .env --quiet cp --recursive s3://{s3_bucket}/{s3_path}/daily/{day_number}/ s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/')
     else:
         os.system(f's3cmd -c .env cp --recursive s3://{s3_bucket}/{s3_path}/daily/{day_number}/ s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}/')
+
+def rotateDomain(rotate_path, rotate_type):
+    s3_folder_list = subprocess.check_output(f's3cmd -c .env ls {rotate_path}/{rotate_type}/', shell=True).decode("utf-8")
+
+    date_list = []
+    for s3_folder in s3_folder_list.strip().split():
+        if s3_folder != 'DIR':
+            folder_date = s3_folder.split('/')[-2]
+            date_list.append(datetime.datetime.strptime(folder_date, '%d_%m_%Y'))
+
+    while True:
+        if len(date_list) > retain_daily:
+            oldest_folder = date_list[0]
+
+            for old in date_list:
+                if old < oldest_folder:
+                    oldest_folder = old
+
+            date_list.remove(oldest_folder)
+
+            os.system(f's3cmd -c .env del --recursive {rotate_path}/{rotate_type}/{oldest_folder.strftime("%d_%m_%Y")}/')
+        else:
+            logging.info(f'All oldest backups was deleted')
+            break
 
 if args.backup_config:
     logging.info(f'Render config from {args.backup_config[0]}')
@@ -333,3 +357,18 @@ if args.backup_config:
                     if int(datetime.datetime.today().strftime("%d")) == 1:
                         backup_type = 'monthly'
                         syncdomainS3(s3_bucket, s3_path, day_number, backup_type)
+                logging.info(f'Backup cloudflare was done')
+
+                logging.info(f'Starting process for rotation domain')
+                rotate_path = f's3://{s3_bucket}/{s3_path}'
+                rotate_type = 'daily'
+                rotateDomain(rotate_path, rotate_type)
+
+                if retain_weekly != 0:
+                    rotate_type = 'weekly'
+                    rotateDomain(rotate_path, rotate_type)
+
+                if retain_monthly != 0:
+                    rotate_type = 'monthly'
+                    rotateDomain(rotate_path, rotate_type)
+                logging.info(f'Rotation domains was done')
