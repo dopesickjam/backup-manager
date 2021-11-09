@@ -206,8 +206,9 @@ if args.backup_config:
 
                     foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, s3_quiet_sync, use_tmp)
 
-                    backup_type = 'daily'
-                    syncS3(c, folder, server, s3_bucket, s3_path, s3cfg, s3_quiet_sync, backup_type, day_number)
+                    if retain_daily != 0:
+                        backup_type = 'daily'
+                        syncS3(c, folder, server, s3_bucket, s3_path, s3cfg, s3_quiet_sync, backup_type, day_number)
 
                     if retain_weekly != 0:
                         if datetime.datetime.today().weekday() == 5:
