@@ -231,8 +231,10 @@ if args.backup_config:
                     c.put('.env', s3cfg)
 
                     rotate_path = f's3://{s3_bucket}/{s3_path}'
-                    rotate_type = 'daily'
-                    rotateBackup(s3cfg, c, rotate_path, rotate_type, folder, 'files')
+
+                    if retain_daily != 0:
+                        rotate_type = 'daily'
+                        rotateBackup(s3cfg, c, rotate_path, rotate_type, folder, 'files')
 
                     if retain_weekly != 0:
                         rotate_type = 'weekly'
