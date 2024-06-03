@@ -32,9 +32,9 @@ def foldertoS3(c, folder, server, s3_bucket, s3_path, s3cfg, s3_quiet_sync, use_
 def syncS3(c, folder, server, s3_bucket, s3_path, s3cfg, s3_quiet_sync, backup_type, day_number):
     logging.info(f'Sync folder {folder} with backup type: {backup_type}')
     if s3_quiet_sync:
-        c.sudo(f's3cmd -c {s3cfg} --quiet cp --skip-existing --recursive s3://{s3_bucket}/{s3_path}/.sync{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}{folder}')
+        c.sudo(f's3cmd -c {s3cfg} --quiet cp --skip-existing --recursive s3://{s3_bucket}/{s3_path}/.sync{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}{folder}/')
     else:
-        c.sudo(f's3cmd -c {s3cfg} cp --skip-existing --recursive s3://{s3_bucket}/{s3_path}/.sync{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}{folder}')
+        c.sudo(f's3cmd -c {s3cfg} cp --skip-existing --recursive s3://{s3_bucket}/{s3_path}/.sync{folder} s3://{s3_bucket}/{s3_path}/{backup_type}/{day_number}{folder}/')
 
 def rotateBackup(s3cfg, c, rotate_path, rotate_type, name, backup_type):
     s3_folder_list = c.sudo(f's3cmd -c {s3cfg} ls {rotate_path}/{rotate_type}/').stdout
